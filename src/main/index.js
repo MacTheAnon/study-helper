@@ -16,9 +16,18 @@ function createSplashWindow() {
     transparent: true,
     frame: false,
     alwaysOnTop: true,
-    webPreferences: { nodeIntegration: false }
+    webPreferences: {
+      nodeIntegration: false
+    }
   })
-  splash.loadFile(path.join(__dirname, '../renderer/splash.html'))
+
+  // Correctly load splash.html based on environment
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    splash.loadFile(path.join(__dirname, '../../src/renderer/splash.html'))
+  } else {
+    splash.loadFile(path.join(__dirname, '../renderer/splash.html'))
+  }
+
   return splash
 }
 
@@ -51,6 +60,7 @@ app.whenReady().then(() => {
   const splash = createSplashWindow()
   const mainWindow = createWindow()
 
+  // Show the main window and close splash after 2 seconds
   mainWindow.once('ready-to-show', () => {
     setTimeout(() => {
       splash.close()
@@ -66,7 +76,6 @@ app.on('window-all-closed', () => {
 })
 
 // 4. IPC HANDLERS
-
 ipcMain.handle('open-file-picker', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
@@ -136,6 +145,6 @@ ipcMain.handle('save-cards', async (event, cards) => {
 })
 
 ipcMain.handle('get-cards', async () => {
-  if (await fs.pathExists(cardsPath)) return fs.readJson(cardsPath)
+  if (await fs.pathExists(cardsPath)) return await fs.readJson(cardsPath)
   return []
 })
