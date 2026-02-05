@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/immutability */
 import { useState, useEffect } from 'react';
 import { Book, Lock, LayoutGrid, FileText } from 'lucide-react';
 import { SidebarItem } from './components/SidebarItem';
