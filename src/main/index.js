@@ -1,40 +1,26 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { electronApp, is } from '@electron-toolkit/utils'
 import fs from 'fs-extra'
 import mammoth from 'mammoth'
 
+// 1. PATH CONFIGURATION
 const storagePath = path.join(app.getPath('userData'), 'Notes')
-// Inside src/main/index.js
+const cardsPath = path.join(storagePath, 'flashcards.json')
 
+// 2. WINDOW MANAGEMENT
 function createSplashWindow() {
   const splash = new BrowserWindow({
     width: 400,
     height: 300,
-    transparent: true, // Makes it look professional
-    frame: false,      // Removes the Windows borders
-    alwaysOnTop: true
-  });
-
-  // Create a simple HTML file for the splash or load a static image
-  splash.loadFile(path.join(__dirname, '../renderer/splash.html'));
-  return splash;
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    webPreferences: { nodeIntegration: false }
+  })
+  splash.loadFile(path.join(__dirname, '../renderer/splash.html'))
+  return splash
 }
-
-app.whenReady().then(() => {
-  const splash = createSplashWindow();
-  
-  // Create the main window but keep it hidden
-  const mainWindow = createWindow(); 
-
-  // Once the main window is ready, swap them
-  mainWindow.once('ready-to-show', () => {
-    setTimeout(() => {
-      splash.close();
-      mainWindow.show();
-    }, 2000); // 2 second delay so people can actually see your cool logo
-  });
-}); 
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -42,28 +28,45 @@ function createWindow() {
     height: 900,
     show: false,
     autoHideMenuBar: true,
-    title: "Study Helper",
+    title: 'Study Helper',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webSecurity: false // Necessary to load local AppData files in the viewer
+      webSecurity: false
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow.show())
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+  return mainWindow
 }
 
+// 3. APP LIFECYCLE
 app.whenReady().then(() => {
   fs.ensureDirSync(storagePath)
-  createWindow()
+
+  const splash = createSplashWindow()
+  const mainWindow = createWindow()
+
+  mainWindow.once('ready-to-show', () => {
+    setTimeout(() => {
+      splash.close()
+      mainWindow.show()
+    }, 2000)
+  })
+
+  electronApp.setAppUserModelId('com.studyhelper')
 })
 
-// FILE PICKER & CONVERSION LOGIC
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
+
+// 4. IPC HANDLERS
+
 ipcMain.handle('open-file-picker', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
@@ -77,14 +80,13 @@ ipcMain.handle('open-file-picker', async () => {
   const ext = path.extname(fileName).toLowerCase()
   const destPath = path.join(storagePath, fileName)
 
-  // Copy and Lock
   await fs.copy(sourcePath, destPath)
-  await fs.chmod(destPath, 0o444) 
+  await fs.chmod(destPath, 0o444)
 
-  let content = ""
+  let content = ''
   if (ext === '.docx') {
     const result = await mammoth.convertToHtml({ path: destPath })
-    content = result.value // HTML version of Word doc
+    content = result.value
   } else if (ext === '.txt') {
     content = await fs.readFile(destPath, 'utf8')
   }
@@ -94,20 +96,46 @@ ipcMain.handle('open-file-picker', async () => {
 
 ipcMain.handle('get-notes', async () => {
   const files = await fs.readdir(storagePath)
-  return files.map(f => ({ 
-    name: f, 
-    path: path.join(storagePath, f),
-    type: path.extname(f).replace('.', '')
-  }))
+  return files
+    .filter((f) => f !== 'flashcards.json')
+    .map((f) => ({
+      name: f,
+      path: path.join(storagePath, f),
+      type: path.extname(f).replace('.', '')
+    }))
 })
+
 ipcMain.handle('delete-note', async (event, filePath) => {
-  try {
-    // On Windows, we need to ensure the file isn't 'locked' before deleting
-    // though fs.remove usually handles this well.
-    await fs.remove(filePath);
-    return { success: true };
-  } catch (err) {
-    console.error("Delete failed:", err);
-    return { success: false, error: err.message };
+  const fileName = path.basename(filePath)
+  const choice = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Cancel', 'Delete'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Confirm Deletion',
+    message: `Are you sure you want to delete "${fileName}"?`,
+    detail: 'This action is permanent and cannot be undone.',
+    checkboxLabel: 'I understand'
+  })
+
+  if (choice.response === 1) {
+    try {
+      await fs.remove(filePath)
+      return { success: true }
+    } catch (err) {
+      console.error('Delete failed:', err)
+      return { success: false, error: err.message }
+    }
   }
-});
+  return { success: false, error: 'User cancelled' }
+})
+
+ipcMain.handle('save-cards', async (event, cards) => {
+  await fs.writeJson(cardsPath, cards)
+  return { success: true }
+})
+
+ipcMain.handle('get-cards', async () => {
+  if (await fs.pathExists(cardsPath)) return fs.readJson(cardsPath)
+  return []
+})
