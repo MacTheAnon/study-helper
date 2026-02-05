@@ -1,0 +1,30 @@
+# Dependency directories
+node_modules/
+
+# Build outputs
+dist/
+release/
+out/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Operating System files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local environment files
+.env
+.env.local
