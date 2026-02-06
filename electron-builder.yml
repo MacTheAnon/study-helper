@@ -1,5 +1,7 @@
-appId: com.electron.app
-productName: study-helper
+appId: com.studyhelper  # MATCHES YOUR index.js EXACTLY
+name: study-helper
+version: 1.0.0
+productName: Study Helper  # FIXED: Capitalized for professional Start Menu entry
 directories:
   buildResources: build
 files:
@@ -12,6 +14,8 @@ asarUnpack:
   - resources/**
 win:
   executableName: study-helper
+  icon: build/icon.ico  # EXPLICIT: Ensures it grabs the icon from your build folder
+  target: nsis
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

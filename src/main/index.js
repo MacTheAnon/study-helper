@@ -35,7 +35,7 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
-    show: false,
+    show: false, // Hidden initially
     autoHideMenuBar: true,
     title: 'Study Helper',
     webPreferences: {
@@ -50,6 +50,12 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+
+  // DEBUGGING: Open DevTools automatically in dev mode to catch errors
+  if (is.dev) {
+    mainWindow.webContents.openDevTools()
+  }
+
   return mainWindow
 }
 
@@ -60,11 +66,15 @@ app.whenReady().then(() => {
   const splash = createSplashWindow()
   const mainWindow = createWindow()
 
-  // Show the main window and close splash after 2 seconds
-  mainWindow.once('ready-to-show', () => {
+  // SAFEGUARD: Use 'did-finish-load' instead of 'ready-to-show'
+  // This ensures the window opens even if React has rendering errors
+  mainWindow.webContents.once('did-finish-load', () => {
     setTimeout(() => {
-      splash.close()
+      if (splash && !splash.isDestroyed()) {
+        splash.close()
+      }
       mainWindow.show()
+      mainWindow.focus()
     }, 2000)
   })
 

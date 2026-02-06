@@ -24,7 +24,11 @@ export default [
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
+      ...eslintPluginReactRefresh.configs.vite.rules,
+      
+      // ADD THESE LINES TO RELAX THE RULES:
+      'react/prop-types': 'off',              // Stops asking for PropTypes
+      'react/no-unescaped-entities': 'off'    // Allows you to write "don't" without escaping quotes
     }
   },
   eslintConfigPrettier
