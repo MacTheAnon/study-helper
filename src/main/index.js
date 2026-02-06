@@ -102,7 +102,7 @@ ipcMain.handle('open-file-picker', async () => {
   const destPath = path.join(storagePath, fileName)
 
   await fs.copy(sourcePath, destPath)
-  
+
   // Cross-platform permission handling
   try {
     await fs.chmod(destPath, 0o444) // Read-only
@@ -123,11 +123,13 @@ ipcMain.handle('open-file-picker', async () => {
 
 ipcMain.handle('get-notes', async () => {
   const files = await fs.readdir(storagePath)
-  return files.filter((f) => f !== 'flashcards.json').map((f) => ({
-    name: f,
-    path: path.join(storagePath, f),
-    type: path.extname(f).replace('.', '')
-  }))
+  return files
+    .filter((f) => f !== 'flashcards.json')
+    .map((f) => ({
+      name: f,
+      path: path.join(storagePath, f),
+      type: path.extname(f).replace('.', '')
+    }))
 })
 
 ipcMain.handle('delete-note', async (event, filePath) => {

@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
@@ -21,6 +22,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
+  // @ts-ignore (define in d.ts if using TS)
   window.electron = electronAPI
+  // @ts-ignore (define in d.ts if using TS)
   window.studyHelperAPI = api
 }
