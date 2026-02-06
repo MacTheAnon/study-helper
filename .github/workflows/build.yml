@@ -1,0 +1,61 @@
+name: Build App
+
+# Trigger the build when you push to main or manually request it
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            command: npm run build:win
+            artifact_path: dist/*.exe
+            artifact_name: Windows-Installer
+          
+          - os: macos-latest
+            command: npm run build:mac
+            artifact_path: dist/*.dmg
+            artifact_name: MacOS-Installer
+          
+          - os: ubuntu-latest
+            command: npm run build:linux
+            artifact_path: dist/*.AppImage
+            artifact_name: Linux-AppImage
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # This runs the specific script from your package.json (build:win, build:mac, etc.)
+      - name: Build Distribution
+        run: ${{ matrix.command }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # This uploads the finished file to the GitHub Actions page
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+          

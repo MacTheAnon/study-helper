@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import PropTypes from 'prop-types'
 import Confetti from 'react-confetti'
@@ -37,13 +38,13 @@ import {
 } from 'lucide-react'
 
 // ==========================================
-// 1. UTILS (Advanced Audio Engine)
+// 1. UTILS (Robust Audio Engine)
 // ==========================================
 
 const AudioEngine = {
   ctx: null,
   gainNode: null,
-  activeSource: null,
+  activeSource: null, // Can be a Node (rain) or an Object with .stop() (drone/lofi)
   mode: 'rain',
   volume: 0.5,
 
@@ -53,6 +54,9 @@ const AudioEngine = {
       this.gainNode = this.ctx.createGain()
       this.gainNode.connect(this.ctx.destination)
       this.gainNode.gain.value = this.volume
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume()
     }
   },
 
@@ -65,22 +69,22 @@ const AudioEngine = {
 
   stop: function () {
     if (this.activeSource) {
-      try {
-        this.activeSource.stop ? this.activeSource.stop() : this.activeSource.pause()
-        this.activeSource.disconnect && this.activeSource.disconnect()
-      } catch {
-        /* ignore */
+      // CASE 1: Custom Wrapper (Drone, Ocean, Lofi)
+      if (typeof this.activeSource.stop === 'function') {
+        this.activeSource.stop()
       }
-      this.activeSource = null
+      // CASE 2: Native Audio Node (Rain/Pink Noise)
+      else if (typeof this.activeSource.disconnect === 'function') {
+        this.activeSource.disconnect()
+      }
     }
+    this.activeSource = null
   },
 
   play: function (mode) {
     this.init()
-    this.stop()
+    this.stop() // Always kill previous sound first
     this.mode = mode
-
-    if (this.ctx.state === 'suspended') this.ctx.resume()
 
     switch (mode) {
       case 'rain':
@@ -89,8 +93,8 @@ const AudioEngine = {
       case 'ocean':
         this.playOcean()
         break
-      case 'meditation':
-        this.playDrone()
+      case 'tophits': // FIXED: Corrected mode name
+        this.playTopHits() // FIXED: Corrected function call
         break
       case 'lofi':
         this.playLofi()
@@ -99,6 +103,8 @@ const AudioEngine = {
         this.playNoise('brown')
     }
   },
+
+  // --- GENERATORS ---
 
   playNoise: function (type) {
     const bufferSize = 4096
@@ -118,9 +124,10 @@ const AudioEngine = {
           b4 = 0.55 * b4 + white * 0.5329522
           b5 = -0.7616 * b5 - white * 0.016898
           output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362
-          output[i] *= 0.11
+          output[i] *= 0.11 // Gain
           b6 = white * 0.115926
         } else {
+          // Brown Noise (Default fallback)
           const val = (b0 + 0.02 * white) / 1.02
           b0 = val
           output[i] = val * 3.5
@@ -128,10 +135,11 @@ const AudioEngine = {
       }
     }
     node.connect(this.gainNode)
-    this.activeSource = node
+    this.activeSource = node // This is a Node, handled by 'else if' in stop()
   },
 
   playOcean: function () {
+    // 1. Noise Node
     const bufferSize = 4096
     const node = this.ctx.createScriptProcessor(bufferSize, 1, 1)
     let lastOut = 0
@@ -145,16 +153,19 @@ const AudioEngine = {
       }
     }
 
+    // 2. Filter Node
     const filter = this.ctx.createBiquadFilter()
     filter.type = 'lowpass'
     filter.Q.value = 1
 
+    // 3. LFO (Low Frequency Oscillator) for wave crashing
     const lfo = this.ctx.createOscillator()
     lfo.type = 'sine'
-    lfo.frequency.value = 0.1
+    lfo.frequency.value = 0.1 // 10 seconds per wave
     const lfoGain = this.ctx.createGain()
     lfoGain.gain.value = 800
 
+    // Connections
     node.connect(filter)
     filter.connect(this.gainNode)
 
@@ -163,50 +174,72 @@ const AudioEngine = {
     filter.frequency.value = 1000
 
     lfo.start()
+
+    // Return Wrapper
     this.activeSource = {
       stop: () => {
-        lfo.stop()
-        node.disconnect()
-        filter.disconnect()
+        try {
+          lfo.stop()
+          lfo.disconnect()
+          lfoGain.disconnect()
+          node.disconnect()
+          filter.disconnect()
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
   },
 
-  playDrone: function () {
-    const osc1 = this.ctx.createOscillator()
-    const osc2 = this.ctx.createOscillator()
-    const gain = this.ctx.createGain()
-    gain.gain.value = 0.2
+  playTopHits: function () {
+    // 1. Wake up AudioContext if needed
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume()
+    }
 
-    osc1.type = 'sine'
-    osc2.type = 'sine'
-    osc1.frequency.value = 150
-    osc2.frequency.value = 152
+    // 2. Define the stream URL
+    // This is a "2000s Pop/Top Hits" stream from Zeno (Works with your current CSP!)
+    const streamUrl = 'https://stream.zeno.fm/ehd8905pq18uv'
 
-    osc1.connect(gain)
-    osc2.connect(gain)
-    gain.connect(this.gainNode)
+    // 3. Create the Audio object
+    const audio = new Audio(streamUrl)
+    audio.crossOrigin = 'anonymous' // Required for Web Audio API
 
-    osc1.start()
-    osc2.start()
+    // 4. Create a source node to route it through your volume slider
+    const source = this.ctx.createMediaElementSource(audio)
+    source.connect(this.gainNode)
 
+    // 5. Play
+    audio.play().catch((e) => console.error('Playback failed:', e))
+
+    // 6. Return the stop function for your button
     this.activeSource = {
       stop: () => {
-        osc1.stop()
-        osc2.stop()
+        audio.pause()
+        // Disconnect to free up memory/CPU
+        source.disconnect()
+        audio.src = ''
       }
     }
   },
 
   playLofi: function () {
+    // Using a reliable standard MP3 stream
     const audio = new Audio('https://stream.zeno.fm/0r0xa792kwzuv')
     audio.crossOrigin = 'anonymous'
+    audio.loop = true
+
+    // Create source from the element
     const source = this.ctx.createMediaElementSource(audio)
     source.connect(this.gainNode)
-    audio.play()
+
+    audio.play().catch((e) => console.log('Stream error:', e))
+
+    // Return Wrapper
     this.activeSource = {
       stop: () => {
         audio.pause()
+        audio.src = '' // Clean up stream connection
         source.disconnect()
       }
     }
@@ -276,8 +309,7 @@ const DocumentViewer = ({ note }) => {
     return () => window.speechSynthesis.cancel()
   }, [selectedVoice])
 
-  // Removed the setTtsStatus useEffect here to fix "Set State in Effect" error.
-  // Instead, the parent component passes a 'key' to force remount on note change.
+  // Note change reset handled by key prop in App
 
   const handlePlay = () => {
     if (ttsStatus === 'paused') {
@@ -371,8 +403,7 @@ DocumentViewer.propTypes = {
 const Flashcard = ({ card, onDelete, onReview, interactive = true }) => {
   const [flipped, setFlipped] = useState(false)
 
-  // Removed the useEffect that reset flipped state on card.id change.
-  // We rely on the parent providing a unique 'key={card.id}' to force a remount.
+  // Reset handled by key in parent
 
   useEffect(() => {
     if (!interactive) return
@@ -1422,11 +1453,12 @@ function App() {
                       >
                         <Waves size={16} className="mb-1" /> Ocean
                       </button>
+                      {/* FIXED: Removed nested button, updated onClick, used ZAP icon */}
                       <button
-                        onClick={() => changeAudioMode('meditation')}
-                        className={`flex flex-col items-center p-2 rounded-lg text-xs font-medium border ${audioMode === 'meditation' ? 'bg-purple-50 border-purple-200 text-purple-600' : 'border-slate-100 text-slate-500 hover:bg-slate-50'}`}
+                        onClick={() => changeAudioMode('tophits')}
+                        className={`flex flex-col items-center p-2 rounded-lg text-xs font-medium border ${audioMode === 'tophits' ? 'bg-purple-50 border-purple-200 text-purple-600' : 'border-slate-100 text-slate-500 hover:bg-slate-50'}`}
                       >
-                        <Zap size={16} className="mb-1" /> Drone
+                        <Zap size={16} className="mb-1" /> Top Hits
                       </button>
                       <button
                         onClick={() => changeAudioMode('lofi')}

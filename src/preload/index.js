@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
