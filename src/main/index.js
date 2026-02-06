@@ -1,8 +1,14 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
-import path from 'path'
-import { electronApp, is } from '@electron-toolkit/utils'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import path, { join } from 'path'
+import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import fs from 'fs-extra'
 import mammoth from 'mammoth'
+
+// Handle icon path correctly for dev vs prod
+const iconPath =
+  process.platform === 'linux' || process.platform === 'win32'
+    ? join(__dirname, '../../resources/icon.png')
+    : undefined
 
 const storagePath = path.join(app.getPath('userData'), 'Notes')
 const cardsPath = path.join(storagePath, 'flashcards.json')
@@ -14,6 +20,7 @@ function createSplashWindow() {
     transparent: true,
     frame: false,
     alwaysOnTop: true,
+    icon: iconPath,
     webPreferences: { nodeIntegration: false }
   })
 
@@ -32,12 +39,22 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     title: 'Study Helper',
-    fullscreenable: true, // Enables native full-screen on Mac/Win
+    icon: iconPath,
+    fullscreenable: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webSecurity: false // Required to view local files
+      webSecurity: false
     }
+  })
+
+  mainWindow.on('ready-to-show', () => {
+    // We handle showing in the splash timeout logic below
+  })
+
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -46,15 +63,16 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
 
-  // Optional: Open DevTools in development for debugging
-  if (is.dev) {
-    mainWindow.webContents.openDevTools()
-  }
-
   return mainWindow
 }
 
 app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.studyhelper')
+
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
   fs.ensureDirSync(storagePath)
   const splash = createSplashWindow()
   const mainWindow = createWindow()
@@ -65,25 +83,17 @@ app.whenReady().then(() => {
       mainWindow.maximize()
       mainWindow.show()
       mainWindow.focus()
-    }, 2000)
+    }, 2500)
   })
 
-  // Set App ID for Windows Taskbar
-  if (process.platform === 'win32') {
-    electronApp.setAppUserModelId('com.studyhelper')
-  }
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
-  }
-})
-
-app.on('activate', () => {
-  // MacOS specific: Re-create window if dock icon is clicked
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
   }
 })
 
@@ -103,7 +113,6 @@ ipcMain.handle('open-file-picker', async () => {
 
   await fs.copy(sourcePath, destPath)
 
-  // Cross-platform permission handling
   try {
     await fs.chmod(destPath, 0o444) // Read-only
   } catch (err) {
@@ -122,6 +131,7 @@ ipcMain.handle('open-file-picker', async () => {
 })
 
 ipcMain.handle('get-notes', async () => {
+  await fs.ensureDir(storagePath)
   const files = await fs.readdir(storagePath)
   return files
     .filter((f) => f !== 'flashcards.json')
@@ -141,6 +151,12 @@ ipcMain.handle('delete-note', async (event, filePath) => {
     checkboxLabel: 'I understand'
   })
   if (choice.response === 1) {
+    // If read-only, try to force permission change before delete
+    try {
+      await fs.chmod(filePath, 0o666)
+    } catch {
+      /* ignore */
+    }
     await fs.remove(filePath)
     return { success: true }
   }

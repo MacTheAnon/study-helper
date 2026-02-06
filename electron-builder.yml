@@ -3,7 +3,7 @@ name: study-helper
 version: 1.0.0
 productName: Study Helper
 directories:
-  buildResources: build
+  buildResources: resources
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -16,7 +16,7 @@ asarUnpack:
 # --- WINDOWS CONFIGURATION ---
 win:
   executableName: study-helper
-  icon: build/icon.ico
+  icon: resources/icon.ico
   target: nsis
 nsis:
   artifactName: ${productName}-Setup-${version}.${ext}
@@ -26,7 +26,7 @@ nsis:
 
 # --- MACOS CONFIGURATION ---
 mac:
-  icon: build/icon.icns
+  icon: resources/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -50,7 +50,7 @@ dmg:
 
 # --- LINUX CONFIGURATION ---
 linux:
-  icon: build/icon.png
+  icon: resources/icon.png
   target:
     - AppImage
     - deb
@@ -60,8 +60,9 @@ linux:
 
 appImage:
   artifactName: ${name}-${version}.${ext}
-  
+
 npmRebuild: false
 publish:
   provider: generic
   url: https://example.com/auto-updates
+  
