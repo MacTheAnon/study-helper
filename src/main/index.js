@@ -4,11 +4,9 @@ import { electronApp, is } from '@electron-toolkit/utils'
 import fs from 'fs-extra'
 import mammoth from 'mammoth'
 
-// 1. PATH CONFIGURATION
 const storagePath = path.join(app.getPath('userData'), 'Notes')
 const cardsPath = path.join(storagePath, 'flashcards.json')
 
-// 2. WINDOW MANAGEMENT
 function createSplashWindow() {
   const splash = new BrowserWindow({
     width: 400,
@@ -16,18 +14,14 @@ function createSplashWindow() {
     transparent: true,
     frame: false,
     alwaysOnTop: true,
-    webPreferences: {
-      nodeIntegration: false
-    }
+    webPreferences: { nodeIntegration: false }
   })
 
-  // Correctly load splash.html based on environment
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     splash.loadFile(path.join(__dirname, '../../src/renderer/splash.html'))
   } else {
     splash.loadFile(path.join(__dirname, '../renderer/splash.html'))
   }
-
   return splash
 }
 
@@ -35,13 +29,14 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
-    show: false, // Hidden initially
+    show: false,
     autoHideMenuBar: true,
     title: 'Study Helper',
+    fullscreenable: true, // Enables native full-screen on Mac/Win
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webSecurity: false
+      webSecurity: false // Required to view local files
     }
   })
 
@@ -51,7 +46,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
 
-  // DEBUGGING: Open DevTools automatically in dev mode to catch errors
+  // Optional: Open DevTools in development for debugging
   if (is.dev) {
     mainWindow.webContents.openDevTools()
   }
@@ -59,39 +54,46 @@ function createWindow() {
   return mainWindow
 }
 
-// 3. APP LIFECYCLE
 app.whenReady().then(() => {
   fs.ensureDirSync(storagePath)
-
   const splash = createSplashWindow()
   const mainWindow = createWindow()
 
-  // SAFEGUARD: Use 'did-finish-load' instead of 'ready-to-show'
-  // This ensures the window opens even if React has rendering errors
   mainWindow.webContents.once('did-finish-load', () => {
     setTimeout(() => {
-      if (splash && !splash.isDestroyed()) {
-        splash.close()
-      }
+      if (splash && !splash.isDestroyed()) splash.close()
+      mainWindow.maximize()
       mainWindow.show()
       mainWindow.focus()
     }, 2000)
   })
 
-  electronApp.setAppUserModelId('com.studyhelper')
+  // Set App ID for Windows Taskbar
+  if (process.platform === 'win32') {
+    electronApp.setAppUserModelId('com.studyhelper')
+  }
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
 })
 
-// 4. IPC HANDLERS
+app.on('activate', () => {
+  // MacOS specific: Re-create window if dock icon is clicked
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow()
+  }
+})
+
+// --- IPC HANDLERS ---
+
 ipcMain.handle('open-file-picker', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'Study Docs', extensions: ['pdf', 'docx', 'txt'] }]
   })
-
   if (canceled) return null
 
   const sourcePath = filePaths[0]
@@ -100,7 +102,13 @@ ipcMain.handle('open-file-picker', async () => {
   const destPath = path.join(storagePath, fileName)
 
   await fs.copy(sourcePath, destPath)
-  await fs.chmod(destPath, 0o444)
+  
+  // Cross-platform permission handling
+  try {
+    await fs.chmod(destPath, 0o444) // Read-only
+  } catch (err) {
+    console.log('Could not set read-only permissions (safe to ignore on some OSs):', err)
+  }
 
   let content = ''
   if (ext === '.docx') {
@@ -115,38 +123,26 @@ ipcMain.handle('open-file-picker', async () => {
 
 ipcMain.handle('get-notes', async () => {
   const files = await fs.readdir(storagePath)
-  return files
-    .filter((f) => f !== 'flashcards.json')
-    .map((f) => ({
-      name: f,
-      path: path.join(storagePath, f),
-      type: path.extname(f).replace('.', '')
-    }))
+  return files.filter((f) => f !== 'flashcards.json').map((f) => ({
+    name: f,
+    path: path.join(storagePath, f),
+    type: path.extname(f).replace('.', '')
+  }))
 })
 
 ipcMain.handle('delete-note', async (event, filePath) => {
-  const fileName = path.basename(filePath)
   const choice = await dialog.showMessageBox({
     type: 'warning',
     buttons: ['Cancel', 'Delete'],
-    defaultId: 0,
-    cancelId: 0,
     title: 'Confirm Deletion',
-    message: `Are you sure you want to delete "${fileName}"?`,
-    detail: 'This action is permanent and cannot be undone.',
+    message: `Delete "${path.basename(filePath)}"?`,
     checkboxLabel: 'I understand'
   })
-
   if (choice.response === 1) {
-    try {
-      await fs.remove(filePath)
-      return { success: true }
-    } catch (err) {
-      console.error('Delete failed:', err)
-      return { success: false, error: err.message }
-    }
+    await fs.remove(filePath)
+    return { success: true }
   }
-  return { success: false, error: 'User cancelled' }
+  return { success: false }
 })
 
 ipcMain.handle('save-cards', async (event, cards) => {
